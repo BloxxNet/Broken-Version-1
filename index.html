@@ -1,0 +1,302 @@
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roblox Noob Character with Smooth Animation &amp; Leaderboard</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #87ceeb; cursor: url(Content/Textures/ArrowCursor.png), auto; }
+  canvas { display: block; }
+
+  /* Simple Roblox 2007 style transparent gray leaderboard */
+  #leaderboard {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 150px;
+    background: rgba(100, 100, 100, 0.6);
+    border: 1px solid #555;
+    border-radius: 4px;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+    color: white;
+    padding: 8px 12px;
+    user-select: none;
+  }
+  #leaderboard h3 {
+    margin: 0 0 6px 0;
+    font-size: 14px;
+    text-align: center;
+    text-shadow: 0 0 2px black;
+  }
+  #leaderboard .playerName {
+    font-size: 16px;
+    text-align: center;
+    text-shadow: 0 0 2px black;
+  }
+</style>
+</head>
+<body>
+
+<div id="leaderboard">
+  <h3>Leaderboard</h3>
+  <div class="playerName">AAAHHH</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+
+<script>
+let scene, camera, renderer;
+let character, head, torso, rightArm, leftArm, rightLeg, leftLeg;
+let keys = {};
+let moveSpeed = 0.1;
+
+let cameraPivot, cameraDistance = 5;
+let cameraAngleX = 0;
+let cameraAngleY = 0;
+let isRightMouseDown = false;
+let prevMouse = {x: 0, y: 0};
+
+let pose = "Standing";
+let animationTime = 0;
+
+let velocityY = 0;
+let gravity = -0.015;
+let isGrounded = true;
+
+init();
+animate();
+
+function init() {
+  scene = new THREE.Scene();
+
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // Baseplate
+  let baseplateGeo = new THREE.BoxGeometry(50, 1, 50);
+  let baseplateMat = new THREE.MeshPhongMaterial({color: 0x228B22});
+  let baseplate = new THREE.Mesh(baseplateGeo, baseplateMat);
+  baseplate.position.y = -0.5;
+  baseplate.receiveShadow = true;
+  scene.add(baseplate);
+
+  // Lights
+  let light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(10, 20, 10);
+  scene.add(light);
+
+  scene.add(new THREE.AmbientLight(0x404040));
+
+  character = new THREE.Group();
+
+  // Roblox Noob Colors (your requested ones)
+  const armHeadColor = 0xf4cc43; // yellow arms & head
+  const torsoColor = 0x176baa;   // blue torso
+  const legColor = 0xa5bc50;     // greenish legs
+
+  // Head (2 x 1 x 1)
+  let headGeo = new THREE.BoxGeometry(2, 1, 1);
+  let headMat = new THREE.MeshPhongMaterial({color: armHeadColor});
+  head = new THREE.Mesh(headGeo, headMat);
+  head.position.set(0, 3.5, 0);
+  character.add(head);
+
+  // Torso (2 x 2 x 1)
+  let torsoGeo = new THREE.BoxGeometry(2, 2, 1);
+  let torsoMat = new THREE.MeshPhongMaterial({color: torsoColor});
+  torso = new THREE.Mesh(torsoGeo, torsoMat);
+  torso.position.set(0, 2, 0);
+  character.add(torso);
+
+  // Arms (1 x 2 x 1)
+  let armGeo = new THREE.BoxGeometry(1, 2, 1);
+  let armMat = new THREE.MeshPhongMaterial({color: armHeadColor});
+
+  rightArm = new THREE.Mesh(armGeo, armMat);
+  rightArm.position.set(-1.5, 3, 0); // Positioned so arm height matches torso height (pivot top)
+  rightArm.geometry.translate(0, -1, 0);
+  character.add(rightArm);
+
+  leftArm = new THREE.Mesh(armGeo, armMat);
+  leftArm.position.set(1.5, 3, 0);
+  leftArm.geometry.translate(0, -1, 0);
+  character.add(leftArm);
+
+  // Legs (1 x 2 x 1)
+  let legGeo = new THREE.BoxGeometry(1, 2, 1);
+  let legMat = new THREE.MeshPhongMaterial({color: legColor});
+
+  rightLeg = new THREE.Mesh(legGeo, legMat);
+  rightLeg.position.set(-0.5, 1, 0);
+  rightLeg.geometry.translate(0, -1, 0);
+  character.add(rightLeg);
+
+  leftLeg = new THREE.Mesh(legGeo, legMat);
+  leftLeg.position.set(0.5, 1, 0);
+  leftLeg.geometry.translate(0, -1, 0);
+  character.add(leftLeg);
+
+  scene.add(character);
+
+  cameraPivot = new THREE.Object3D();
+  character.add(cameraPivot);
+  cameraPivot.position.copy(head.position);
+
+  updateCamera();
+
+  window.addEventListener('keydown', e => {
+    keys[e.key.toLowerCase()] = true;
+    if(e.key === ' ' && isGrounded) {
+      velocityY = 0.18; // jump velocity
+      isGrounded = false;
+    }
+  });
+  window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+  window.addEventListener('mousedown', e => {
+    if (e.button === 2) {
+      isRightMouseDown = true;
+      prevMouse.x = e.clientX;
+      prevMouse.y = e.clientY;
+    }
+  });
+  window.addEventListener('mouseup', e => {
+    if (e.button === 2) {
+      isRightMouseDown = false;
+    }
+  });
+  window.addEventListener('mousemove', e => {
+    if (isRightMouseDown) {
+      let deltaX = e.clientX - prevMouse.x;
+      let deltaY = e.clientY - prevMouse.y;
+
+      cameraAngleY -= deltaX * 0.005;
+      cameraAngleX += deltaY * 0.005;
+
+      let maxAngle = Math.PI/2 * 0.9;
+      cameraAngleX = Math.min(Math.max(cameraAngleX, -maxAngle), maxAngle);
+
+      prevMouse.x = e.clientX;
+      prevMouse.y = e.clientY;
+    }
+  });
+
+  window.addEventListener('contextmenu', e => e.preventDefault());
+
+  window.addEventListener('wheel', e => {
+    cameraDistance += e.deltaY * 0.01;
+    cameraDistance = Math.min(Math.max(cameraDistance, 2), 10);
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+
+function getMovementVector() {
+  let forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0;
+  forward.normalize();
+
+  let right = new THREE.Vector3();
+  right.crossVectors(forward, new THREE.Vector3(0,1,0)).normalize();
+
+  let moveDir = new THREE.Vector3();
+  if (keys['w']) moveDir.add(forward);
+  if (keys['s']) moveDir.addScaledVector(forward, -1);
+  if (keys['a']) moveDir.addScaledVector(right, -1);
+  if (keys['d']) moveDir.add(right);
+
+  if (moveDir.length() > 0) moveDir.normalize();
+
+  return moveDir;
+}
+
+function updateCamera() {
+  let offset = new THREE.Vector3(
+    Math.sin(cameraAngleY) * Math.cos(cameraAngleX),
+    Math.sin(cameraAngleX),
+    Math.cos(cameraAngleY) * Math.cos(cameraAngleX)
+  );
+  offset.multiplyScalar(cameraDistance);
+
+  camera.position.copy(head.getWorldPosition(new THREE.Vector3())).add(offset);
+  camera.lookAt(head.getWorldPosition(new THREE.Vector3()));
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  let moveVec = getMovementVector();
+
+  if (moveVec.length() > 0) {
+    // Rotate character to face movement direction smoothly (slower turn)
+    let targetRotation = Math.atan2(moveVec.x, moveVec.z);
+    let currentY = character.rotation.y;
+    let diff = targetRotation - currentY;
+    if (diff > Math.PI) diff -= Math.PI * 2;
+    if (diff < -Math.PI) diff += Math.PI * 2;
+    character.rotation.y += diff * 0.07; // slower turn speed
+
+    // Move character forward
+    let forward = new THREE.Vector3(0,0,1).applyEuler(character.rotation);
+    forward.multiplyScalar(moveSpeed);
+    character.position.add(forward);
+
+    // Animation: walk faster and smooth
+    pose = "Walking";
+    animationTime += 0.1;
+  } else {
+    pose = "Standing";
+    animationTime += 0.02;
+  }
+
+  // Gravity & Jump
+  velocityY += gravity;
+  character.position.y += velocityY;
+
+  if (character.position.y <= 0) {
+    character.position.y = 0;
+    velocityY = 0;
+    isGrounded = true;
+  }
+
+  // Animate limbs based on pose & animationTime
+  animateLimbs(pose, animationTime);
+
+  updateCamera();
+  renderer.render(scene, camera);
+}
+
+function animateLimbs(pose, t) {
+  // Reset rotations
+  rightArm.rotation.set(0,0,0);
+  leftArm.rotation.set(0,0,0);
+  rightLeg.rotation.set(0,0,0);
+  leftLeg.rotation.set(0,0,0);
+
+  if (pose === "Standing") {
+    // Idle slight sway
+    let idleSwing = Math.sin(t) * 0.05;
+    rightArm.rotation.x = idleSwing;
+    leftArm.rotation.x = -idleSwing;
+    rightLeg.rotation.x = -idleSwing;
+    leftLeg.rotation.x = idleSwing;
+  } else if (pose === "Walking") {
+    // Walk cycle - faster swing and movement
+    let swing = Math.sin(t * 8) * 0.7;
+    rightArm.rotation.x = swing;
+    leftArm.rotation.x = -swing;
+    rightLeg.rotation.x = -swing;
+    leftLeg.rotation.x = swing;
+  }
+}
+</script><canvas data-engine="three.js r152" width="2005" height="1279" style="display: block; width: 2005px; height: 1279px;"></canvas>
+
+
+</body></html>
